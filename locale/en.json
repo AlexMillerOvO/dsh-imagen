@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Image generation",
+    "description": "Generate and edit images through a configurable image model (Volcengine Ark Seedream, OpenAI-compatible endpoints, Google Gemini), shown inline in the conversation."
+  }
+}

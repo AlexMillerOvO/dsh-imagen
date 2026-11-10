@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "文生图",
+    "description": "通过可配置的生图模型生成与修改图片：支持火山方舟 Seedream、OpenAI Images 兼容接口与 Google Gemini，出图直接显示在对话里。"
+  }
+}

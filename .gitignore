@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+*.log
+
+# 出图落盘目录：图片不进仓库
+generated-images/
