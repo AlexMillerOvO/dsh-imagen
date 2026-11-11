@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "description": "Generate and edit images from the conversation through a configurable image model (Volcengine Ark Seedream, OpenAI-compatible, Google Gemini).",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexMillerOvO/dsh-imagen.git"
+  },
+  "homepage": "https://github.com/AlexMillerOvO/dsh-imagen#readme",
+  "bugs": {
+    "url": "https://github.com/AlexMillerOvO/dsh-imagen/issues"
+  },
   "type": "module",
   "main": "index.js",
   "icon": "icon.svg",
