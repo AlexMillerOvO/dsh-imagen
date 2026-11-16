@@ -631,7 +631,6 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false);
       const anchorRef = React.useRef(null);
       const menuRef = React.useRef(null);
-      const lastCompactRef = React.useRef(null);
 
       const refresh = React.useCallback(() => {
         requestJson(SELECTION_URL).then((body) => {
@@ -712,11 +711,6 @@ window.__ModuleLoader__.load({
           }
           if (!widest) widest = window.innerWidth;
           const shouldCompact = widest >= 200 && widest < COMPACT_WIDTH;
-          if (lastCompactRef.current !== shouldCompact) {
-            lastCompactRef.current = shouldCompact;
-            // 留一行日志，方便你告诉我实际量到多少、阈值该调到多少。
-            console.log('[dsh-imagen] composer width=' + Math.round(widest) + ' compact=' + shouldCompact);
-          }
           setCompact(shouldCompact);
           // 变宽后弹层没有锚点了，直接关掉，避免它悬在半空。
           if (!shouldCompact) setOpen(false);
