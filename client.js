@@ -15,6 +15,10 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const h = React.createElement;
+    // portal 需要 react-dom；拿不到就退化成「永远不折叠」，不能让整个插件挂掉。
+    const ReactDOM = (() => {
+      try { return require('react-dom'); } catch (_error) { return null; }
+    })();
 
     const SECTION_ID = 'dsh-imagen';
     const CONFIG_URL = '/api/imagen/config';
@@ -145,7 +149,8 @@ window.__ModuleLoader__.load({
       base: 'var(--dsw-alias-bg-base)',
       brand: 'var(--dsw-alias-brand-primary)',
       danger: 'var(--dsw-alias-state-error-primary)',
-      ok: 'var(--dsw-alias-state-success-primary)'
+      ok: 'var(--dsw-alias-state-success-primary)',
+      overlay: 'var(--dsw-alias-bg-overlay)'
     };
 
     const S = {
@@ -196,7 +201,64 @@ window.__ModuleLoader__.load({
         borderRadius: '6px',
         cursor: 'pointer'
       },
-      pickerWrap: { display: 'inline-flex', alignItems: 'center', gap: '4px' }
+      pickerWrap: { display: 'inline-flex', alignItems: 'center', gap: '4px' },
+      iconButton: {
+        width: '26px',
+        height: '24px',
+        padding: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'inherit',
+        background: 'transparent',
+        border: '1px solid ' + colors.border,
+        borderRadius: '6px',
+        cursor: 'pointer'
+      },
+      menu: {
+        background: colors.overlay,
+        border: '1px solid ' + colors.border,
+        borderRadius: '10px',
+        padding: '6px',
+        boxShadow: '0 8px 28px rgba(0, 0, 0, 0.28)',
+        color: colors.text,
+        fontSize: '12px',
+        maxHeight: '320px',
+        overflowY: 'auto',
+        boxSizing: 'border-box'
+      },
+      menuSection: { fontSize: '11px', color: colors.dim, margin: '6px 4px 4px' },
+      menuItem: {
+        display: 'block',
+        width: '100%',
+        boxSizing: 'border-box',
+        textAlign: 'left',
+        padding: '6px 8px',
+        marginBottom: '2px',
+        fontSize: '12px',
+        fontFamily: 'inherit',
+        color: 'inherit',
+        background: 'transparent',
+        border: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      },
+      menuItemActive: { color: colors.brand, fontWeight: 600, background: colors.layer },
+      chipRow: { display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '2px 4px 6px' },
+      chip: {
+        padding: '3px 10px',
+        fontSize: '12px',
+        fontFamily: 'inherit',
+        color: 'inherit',
+        background: 'transparent',
+        border: '1px solid ' + colors.borderStrong,
+        borderRadius: '999px',
+        cursor: 'pointer'
+      },
+      chipActive: { color: colors.brand, borderColor: colors.brand }
     };
 
     function Field(props) {
@@ -541,12 +603,35 @@ window.__ModuleLoader__.load({
 
     const SIZE_VALUES = ['1K', '2K', '4K'];
 
+    /**
+     * 父容器窄于这个宽度就收成一个图标：两个下拉本身约占 264px，再挤就没地方
+     * 放别的控件了。用 ResizeObserver 盯父容器，而不是盯 window——侧栏展开、
+     * 分屏、面板宽度变化都会让父容器变窄，window 宽度未必变。
+     */
+    const COMPACT_WIDTH = 520;
+
+    function PickerIcon(props) {
+      const size = props && typeof props.size === 'number' ? props.size : 14;
+      return h('svg', {
+        viewBox: '0 0 64 64', width: size, height: size, 'aria-hidden': true,
+        style: { display: 'block', color: 'currentColor' }
+      },
+        h('rect', { x: 6, y: 18, width: 52, height: 36, rx: 7, fill: 'none', stroke: 'currentColor', strokeWidth: 6 }),
+        h('circle', { cx: 32, cy: 36, r: 9, fill: 'none', stroke: 'currentColor', strokeWidth: 6 }),
+        h('path', { d: 'M22 18l4-6h12l4 6', fill: 'none', stroke: 'currentColor', strokeWidth: 6, strokeLinejoin: 'round' })
+      );
+    }
+
     function ComposerPicker(props) {
       const ctx = props.ctx;
       const t = useTranslate(ctx);
       const [config, setConfig] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState('');
+      const [compact, setCompact] = React.useState(false);
+      const [open, setOpen] = React.useState(false);
+      const anchorRef = React.useRef(null);
+      const menuRef = React.useRef(null);
 
       const refresh = React.useCallback(() => {
         requestJson(SELECTION_URL).then((body) => {
@@ -594,6 +679,61 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener(SAVED_EVENT, onSaved);
       }, [refresh]);
 
+      /**
+       * 宽度探测：宽了展开成两个下拉，窄了收成图标。
+       *
+       * 不能量 parentElement —— 宿主可能给每个控件包一层只装我们自己的 wrapper，
+       * 那个宽度就是控件本身（26px 或 264px），量它会形成「折叠→变宽→展开→变窄」
+       * 的死循环。改找「子元素多于一个」的祖先：那是真正排布这一行控件、宽度由
+       * 容器决定的元素。
+       */
+      React.useEffect(() => {
+        const node = anchorRef.current;
+        if (!node || typeof ResizeObserver !== 'function') return undefined;
+
+        let target = null;
+        let probe = node.parentElement;
+        for (let depth = 0; probe && depth < 5; depth += 1, probe = probe.parentElement) {
+          if (probe.childElementCount > 1) { target = probe; break; }
+        }
+
+        const measure = () => {
+          const width = target ? target.getBoundingClientRect().width : window.innerWidth;
+          const shouldCompact = width > 0 && width < COMPACT_WIDTH;
+          setCompact(shouldCompact);
+          // 变宽后弹层没有锚点了，直接关掉，避免它悬在半空。
+          if (!shouldCompact) setOpen(false);
+        };
+
+        measure();
+        const observer = new ResizeObserver(measure);
+        if (target) observer.observe(target);
+        window.addEventListener('resize', measure);
+        return () => {
+          observer.disconnect();
+          window.removeEventListener('resize', measure);
+        };
+      }, [config]);
+
+      // 点外面或按 Esc 关弹层。
+      React.useEffect(() => {
+        if (!open) return undefined;
+        const onDown = (event) => {
+          const anchor = anchorRef.current;
+          const menu = menuRef.current;
+          if (anchor && anchor.contains(event.target)) return;
+          if (menu && menu.contains(event.target)) return;
+          setOpen(false);
+        };
+        const onKey = (event) => { if (event.key === 'Escape') setOpen(false); };
+        document.addEventListener('mousedown', onDown, true);
+        document.addEventListener('keydown', onKey, true);
+        return () => {
+          document.removeEventListener('mousedown', onDown, true);
+          document.removeEventListener('keydown', onKey, true);
+        };
+      }, [open]);
+
       const send = React.useCallback((selection) => {
         setBusy(true);
         requestJson(SELECTION_URL, {
@@ -617,15 +757,69 @@ window.__ModuleLoader__.load({
       if (options.length === 0) return null;
 
       const currentValue = config.active + '\u0000' + config.activeModel;
-      const known = options.some((option) => option.value === currentValue);
+      const currentOption = options.find((item) => item.value === currentValue) || options[0];
       const sizeValue = config.size || '';
       const sizeChoices = SIZE_VALUES.slice();
       if (sizeValue && sizeChoices.indexOf(sizeValue) === -1) sizeChoices.push(sizeValue);
+      const summary = currentOption.label + ' \u00b7 ' + (sizeValue || t('autoSize'));
+      const collapsed = compact && !!ReactDOM;
 
-      return h('span', { style: S.pickerWrap, title: error || '' },
-        h('select', {
+      let menuStyle = null;
+      if (open && collapsed && anchorRef.current && typeof window !== 'undefined') {
+        const rect = anchorRef.current.getBoundingClientRect();
+        const menuWidth = 264;
+        menuStyle = {
+          position: 'fixed',
+          left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)) + 'px',
+          // 输入框在底部，弹层往上开。
+          bottom: Math.max(8, window.innerHeight - rect.top + 8) + 'px',
+          width: menuWidth + 'px',
+          zIndex: 2147483000
+        };
+      }
+
+      const closeMenu = () => setOpen(false);
+
+      const menu = open && menuStyle ? ReactDOM.createPortal(
+        h('div', { ref: menuRef, style: Object.assign({}, S.menu, menuStyle), role: 'menu' },
+          h('div', { style: S.menuSection }, t('modelTitle')),
+          options.map((option) => h('button', {
+            key: option.value,
+            type: 'button',
+            role: 'menuitemradio',
+            'aria-checked': option.value === currentOption.value,
+            style: Object.assign({}, S.menuItem, option.value === currentOption.value ? S.menuItemActive : null),
+            onClick: () => { send({ active: option.provider, activeModel: option.model }); closeMenu(); }
+          }, option.label)),
+
+          h('div', { style: S.menuSection }, t('sizeTitle')),
+          h('div', { style: S.chipRow }, sizeChoices.map((value) => h('button', {
+            key: value || 'auto',
+            type: 'button',
+            'aria-pressed': value === sizeValue,
+            style: Object.assign({}, S.chip, value === sizeValue ? S.chipActive : null),
+            onClick: () => { send({ size: value }); closeMenu(); }
+          }, value || t('autoSize'))))
+        ),
+        document.body
+      ) : null;
+
+      return h('span', { ref: anchorRef, style: S.pickerWrap, title: collapsed ? summary : (error || '') },
+        collapsed
+          ? h('button', {
+            type: 'button',
+            style: S.iconButton,
+            disabled: busy,
+            title: summary,
+            'aria-label': t('modelTitle') + ' / ' + t('sizeTitle'),
+            'aria-expanded': open,
+            onClick: () => setOpen((value) => !value)
+          }, h(PickerIcon, { size: 14 }))
+          : null,
+
+        collapsed ? null : h('select', {
           style: S.picker,
-          value: known ? currentValue : options[0].value,
+          value: currentValue,
           disabled: busy,
           title: t('modelTitle'),
           'aria-label': t('modelTitle'),
@@ -637,7 +831,7 @@ window.__ModuleLoader__.load({
         }, options.map((option) =>
           h('option', { key: option.value, value: option.value }, option.label))),
 
-        h('select', {
+        collapsed ? null : h('select', {
           style: S.pickerSize,
           value: sizeValue,
           disabled: busy,
@@ -645,7 +839,9 @@ window.__ModuleLoader__.load({
           'aria-label': t('sizeTitle'),
           onChange: (event) => send({ size: event.target.value })
         }, sizeChoices.map((value) =>
-          h('option', { key: value || 'auto', value: value }, value || t('autoSize'))))
+          h('option', { key: value || 'auto', value: value }, value || t('autoSize')))),
+
+        menu
       );
     }
 
