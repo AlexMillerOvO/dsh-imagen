@@ -604,11 +604,10 @@ window.__ModuleLoader__.load({
     const SIZE_VALUES = ['1K', '2K', '4K'];
 
     /**
-     * 父容器窄于这个宽度就收成一个图标：两个下拉本身约占 264px，再挤就没地方
-     * 放别的控件了。用 ResizeObserver 盯父容器，而不是盯 window——侧栏展开、
-     * 分屏、面板宽度变化都会让父容器变窄，window 宽度未必变。
+     * 可用宽度小于这个值就收成一个图标：两个下拉约占 264px，再挤就没地方放
+     * 别的控件了。想调手感只改这一个数。
      */
-    const COMPACT_WIDTH = 520;
+    const COMPACT_WIDTH = 460;
 
     function PickerIcon(props) {
       const size = props && typeof props.size === 'number' ? props.size : 14;
@@ -632,6 +631,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false);
       const anchorRef = React.useRef(null);
       const menuRef = React.useRef(null);
+      const lastCompactRef = React.useRef(null);
 
       const refresh = React.useCallback(() => {
         requestJson(SELECTION_URL).then((body) => {
@@ -682,24 +682,41 @@ window.__ModuleLoader__.load({
       /**
        * 宽度探测：宽了展开成两个下拉，窄了收成图标。
        *
-       * 不能量 parentElement —— 宿主可能给每个控件包一层只装我们自己的 wrapper，
-       * 那个宽度就是控件本身（26px 或 264px），量它会形成「折叠→变宽→展开→变窄」
-       * 的死循环。改找「子元素多于一个」的祖先：那是真正排布这一行控件、宽度由
-       * 容器决定的元素。
+       * 判定依据取「祖先里最宽的那个」（不含 body/html）。之前试过另外两种，
+       * 都被宿主的包装层骗了：
+       *   - 量 parentElement：那是只装我们自己的 wrapper，宽度等于控件本身，
+       *     折叠后会形成「变宽→展开→变窄→折叠」的死循环。
+       *   - 量第一个「子元素多于一个」的祖先：仍可能命中外层的一个窄包装，
+       *     结果全屏也只量到两百多，永远折叠。
+       * 取最大值最稳：全屏时它就是对话列宽度，缩窄时它会跟着变小。
+       * 再加一条兜底：量到的宽度比展开态本身还窄，说明量错了对象，宁可展开。
        */
       React.useEffect(() => {
         const node = anchorRef.current;
         if (!node || typeof ResizeObserver !== 'function') return undefined;
 
-        let target = null;
+        let outermost = null;
         let probe = node.parentElement;
-        for (let depth = 0; probe && depth < 5; depth += 1, probe = probe.parentElement) {
-          if (probe.childElementCount > 1) { target = probe; break; }
+        for (let depth = 0; probe && depth < 7; depth += 1, probe = probe.parentElement) {
+          if (probe === document.body || probe === document.documentElement) break;
+          outermost = probe;
         }
 
         const measure = () => {
-          const width = target ? target.getBoundingClientRect().width : window.innerWidth;
-          const shouldCompact = width > 0 && width < COMPACT_WIDTH;
+          let widest = 0;
+          let walk = node.parentElement;
+          for (let depth = 0; walk && depth < 7; depth += 1, walk = walk.parentElement) {
+            if (walk === document.body || walk === document.documentElement) break;
+            const width = walk.getBoundingClientRect().width;
+            if (width > widest) widest = width;
+          }
+          if (!widest) widest = window.innerWidth;
+          const shouldCompact = widest >= 200 && widest < COMPACT_WIDTH;
+          if (lastCompactRef.current !== shouldCompact) {
+            lastCompactRef.current = shouldCompact;
+            // 留一行日志，方便你告诉我实际量到多少、阈值该调到多少。
+            console.log('[dsh-imagen] composer width=' + Math.round(widest) + ' compact=' + shouldCompact);
+          }
           setCompact(shouldCompact);
           // 变宽后弹层没有锚点了，直接关掉，避免它悬在半空。
           if (!shouldCompact) setOpen(false);
@@ -707,7 +724,7 @@ window.__ModuleLoader__.load({
 
         measure();
         const observer = new ResizeObserver(measure);
-        if (target) observer.observe(target);
+        if (outermost) observer.observe(outermost);
         window.addEventListener('resize', measure);
         return () => {
           observer.disconnect();
