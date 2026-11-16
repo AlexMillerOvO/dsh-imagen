@@ -607,7 +607,7 @@ window.__ModuleLoader__.load({
      * 可用宽度小于这个值就收成一个图标：两个下拉约占 264px，再挤就没地方放
      * 别的控件了。想调手感只改这一个数。
      */
-    const COMPACT_WIDTH = 380;
+    const COMPACT_WIDTH = 550;
 
     function PickerIcon(props) {
       const size = props && typeof props.size === 'number' ? props.size : 14;
