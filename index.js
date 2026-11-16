@@ -698,6 +698,31 @@ function registerConfigRoute(ctx) {
   }), 'dsh-imagen: selection route');
 }
 
+/* ------------------------------------------------------------ 路由注册 */
+
+/**
+ * 路由必须等 webServer 就绪再注册。
+ *
+ * 之前是 apply 里直接 `ctx.get('webServer')` 读一次——插件和 web 运行时谁先加载
+ * 取决于组合顺序，一读空就永久不注册：输入栏选择器拉不到配置、设置页打不开、
+ * 预览图 404，而且全都静默失败。`ctx.inject` 会等服务出现再回调，并且服务被替换
+ * 时重新执行。
+ */
+function installWebRoutes(ctx) {
+  const register = (target) => {
+    originBase = resolveOrigin(target);
+    registerPreviewRoute(target);
+    registerConfigRoute(target);
+    logHost('web routes registered; origin=' + (originBase || '(relative)'));
+  };
+  try {
+    if (typeof ctx.inject === 'function') ctx.inject(['webServer'], register);
+    else register(ctx);
+  } catch (error) {
+    logHost('web route install error: ' + String(error && error.message ? error.message : error));
+  }
+}
+
 /* ------------------------------------------------------- 调用路由提示 */
 
 /**
@@ -809,8 +834,7 @@ export function apply(ctx) {
   const created = ensureConfigFile();
   logHost('apply; origin=' + (originBase || '(relative)') + '; adapters=' + describeAdapters().map((adapter) => adapter.id).join(',') + (created ? '; config created' : ''));
 
-  registerPreviewRoute(ctx);
-  registerConfigRoute(ctx);
+  installWebRoutes(ctx);
   installPromptSection(ctx);
 
   const output = {

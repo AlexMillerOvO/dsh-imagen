@@ -553,13 +553,40 @@ window.__ModuleLoader__.load({
           setConfig(body.config || null);
           setError('');
         }).catch((cause) => {
-          // 输入栏里不弹错：配置没准备好时安静地不显示控件，别干扰正常对话。
-          setConfig(null);
           setError(String(cause && cause.message ? cause.message : cause));
         });
       }, []);
 
-      React.useEffect(() => { refresh(); }, [refresh]);
+      /**
+       * 插件可能比页面晚就绪（宿主重启后加载顺序会变），这时路由还不存在。
+       * 不能就此永久消失：先每 3 秒重试、最多约一分钟，之后靠窗口重新获得焦点
+       * 再拉一次。这样用户不用为了一个下拉刷新整页。
+       */
+      React.useEffect(() => {
+        let cancelled = false;
+        let timer = null;
+        let attempts = 0;
+        const attempt = () => {
+          requestJson(SELECTION_URL).then((body) => {
+            if (cancelled) return;
+            setConfig(body.config || null);
+            setError('');
+          }).catch((cause) => {
+            if (cancelled) return;
+            setError(String(cause && cause.message ? cause.message : cause));
+            attempts += 1;
+            if (attempts < 20) timer = setTimeout(attempt, 3000);
+          });
+        };
+        attempt();
+        const onFocus = () => { if (!cancelled) attempt(); };
+        window.addEventListener('focus', onFocus);
+        return () => {
+          cancelled = true;
+          if (timer) clearTimeout(timer);
+          window.removeEventListener('focus', onFocus);
+        };
+      }, []);
 
       React.useEffect(() => {
         const onSaved = () => refresh();
