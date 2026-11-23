@@ -59,6 +59,7 @@ const CONFIG_TEMPLATE = {
   activeModel: 'doubao-seedream-5-0-flash-260915',
   size: '2K',
   outputDir: 'generated-images',
+  composerWidth: 550,
   providers: [
     {
       id: 'ark',
@@ -124,8 +125,16 @@ function loadConfig() {
     activeModel,
     size: String(raw.size || '').trim(),
     providers,
-    outputDir: typeof raw.outputDir === 'string' && raw.outputDir.trim() ? raw.outputDir.trim() : 'generated-images'
+    outputDir: typeof raw.outputDir === 'string' && raw.outputDir.trim() ? raw.outputDir.trim() : 'generated-images',
+    composerWidth: normalizeComposerWidth(raw.composerWidth)
   };
+}
+
+/** 输入栏折叠阈值：低于它收成图标。范围限制得宽一点，但拒绝明显无意义的数。 */
+export function normalizeComposerWidth(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 550;
+  return Math.min(2000, Math.max(200, Math.round(number)));
 }
 
 /* ------------------------------------------------------- 预览 URL 与签名 */
@@ -265,6 +274,26 @@ function mimeFromPath(file) {
  * 上游只认「URL 或 base64」，本地路径必须先读成字节；http(s) 也先下载下来，
  * 免得把内网地址或需要鉴权的链接交给上游。
  */
+/**
+ * 粘贴进对话的图片，模型看到的是 `sha256:<64位hex>` 这个 id，不是文件路径。
+ * 宿主把它按内容寻址存成 `~/.dsh/attachments/v1/objects/<前2位>/<完整hex>`，
+ * 文件没有扩展名。不认这个 id 的话，「把这张图的背景换掉」这类请求必然失败。
+ */
+const ATTACHMENTS_DIR = path.join(dshHome(), 'attachments', 'v1', 'objects');
+
+/** `sha256:<64 hex>` → 内容寻址的相对路径 `<前2位>/<完整hex>`；不是这个形状就返回 ''。 */
+export function attachmentRelativePath(item) {
+  // 先 trim 再剥前缀：否则 " sha256:..." 这种带前导空格的值会被正则漏掉。
+  const hex = String(item || '').trim().replace(/^sha256:/i, '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(hex)) return '';
+  return hex.slice(0, 2) + '/' + hex;
+}
+
+function attachmentFilePath(item) {
+  const relative = attachmentRelativePath(item);
+  return relative ? path.join(ATTACHMENTS_DIR, relative) : '';
+}
+
 async function toDataUrl(item, signal) {
   if (/^data:/i.test(item)) {
     const bytes = Buffer.byteLength(item, 'utf8');
@@ -279,13 +308,25 @@ async function toDataUrl(item, signal) {
     const mimeType = String(response.headers.get('content-type') || '').split(';')[0] || sniffMimeType(buffer);
     return 'data:' + mimeType + ';base64,' + buffer.toString('base64');
   }
+  const attachment = /^sha256:/i.test(item) ? attachmentFilePath(item) : '';
+  if (attachment) {
+    if (!existsSync(attachment)) throw new Error('找不到这个附件：' + item + '（可能已被清理，请重新粘贴一次）');
+    const info = statSync(attachment);
+    if (info.size > MAX_INPUT_BYTES) throw new Error('参考图超过 10MB 上限（' + Math.round(info.size / 1024 / 1024) + 'MB）：' + item);
+    const bytes = await readFile(attachment);
+    // 附件文件没有扩展名，只能按字节头判类型。
+    return 'data:' + sniffMimeType(bytes) + ';base64,' + bytes.toString('base64');
+  }
+
   const file = path.resolve(item);
   if (!existsSync(file)) throw new Error('参考图不存在：' + file);
   const info = statSync(file);
   if (!info.isFile()) throw new Error('参考图不是文件：' + file);
   if (info.size > MAX_INPUT_BYTES) throw new Error('参考图超过 10MB 上限（' + Math.round(info.size / 1024 / 1024) + 'MB）：' + file);
   const bytes = await readFile(file);
-  return 'data:' + mimeFromPath(file) + ';base64,' + bytes.toString('base64');
+  // 无扩展名的文件（例如别处拷来的附件）同样按字节头判。
+  const mimeType = path.extname(file) ? mimeFromPath(file) : sniffMimeType(bytes);
+  return 'data:' + mimeType + ';base64,' + bytes.toString('base64');
 }
 
 /* ---------------------------------------------------------------- 出图 */
@@ -443,6 +484,7 @@ function publicConfig() {
     activeModel: config.activeModel,
     size: config.size,
     outputDir: config.outputDir,
+    composerWidth: config.composerWidth,
     providers: config.providers.map((provider) => ({
       id: provider.id,
       kind: provider.kind,
@@ -514,12 +556,14 @@ function saveConfig(input) {
   }
 
   const outputDir = String(input.outputDir || '').trim() || 'generated-images';
+  const composerWidth = normalizeComposerWidth(input.composerWidth === undefined ? previous.composerWidth : input.composerWidth);
   const next = {
     version: 2,
     active: active.id,
     activeModel,
     size,
     outputDir,
+    composerWidth,
     providers: out
   };
   mkdirSync(stateDir(), { recursive: true });
@@ -580,6 +624,7 @@ function saveSelection(input) {
     activeModel,
     size,
     outputDir: typeof raw.outputDir === 'string' && raw.outputDir.trim() ? raw.outputDir.trim() : config.outputDir,
+    composerWidth: normalizeComposerWidth(raw.composerWidth),
     providers: providers.map((provider) => ({
       id: provider.id,
       kind: provider.kind,
@@ -898,7 +943,11 @@ export function apply(ctx) {
         image: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Optional reference images for editing: 1-8 absolute local paths or http(s) URLs. Omit entirely for text-to-image.'
+          description: 'Optional reference images for editing: 1-8 entries. Each may be a `sha256:` attachment id (what a pasted or attached image is), an absolute local path, an http(s) URL, or a data URL. Use the sha256 id when the user pasted or attached an image; never invent a file path for it. Omit entirely for text-to-image.'
+        },
+        seed: {
+          type: 'number',
+          description: 'Optional. Reproducibility seed. Only providers that support it honor the value; others ignore it. Use the same seed with the same prompt to get a similar result again.'
         },
         watermark: {
           type: 'boolean',

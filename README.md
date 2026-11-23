@@ -24,11 +24,22 @@
 
 ## 安装
 
-已经通过插件管理器装进 `desktop` profile。重新安装或更新代码后：
+从 npm 装（推荐）：
 
 ```bash
-# 源码改动后让宿主重新加载（不需要重启整个 DSH）
-#   在对话里让我执行 set_plugin false → true，或者重启 DSH
+dsh plugin --profile desktop add dsh-imagen
+```
+
+从 GitHub 装最新代码：
+
+```bash
+dsh plugin --profile desktop add github:AlexMillerOvO/dsh-imagen
+```
+
+装好后重启 DSH。升级到新版本：
+
+```bash
+dsh plugin --profile desktop add dsh-imagen
 ```
 
 卸载：
@@ -36,6 +47,8 @@
 ```bash
 dsh plugin --profile desktop remove dsh-imagen
 ```
+
+> 开发时改完源码要让宿主重新加载插件，不必重启整个 DSH。
 
 ## 配置
 
@@ -97,7 +110,7 @@ dsh plugin --profile desktop remove dsh-imagen
 - 增删提供商、切换接口类型（ark / openai / gemini）
 - 填 API 地址、API Key、**多个模型 id**（逗号或换行分隔）、是否加水印
 - 点「设为当前」切换默认使用哪一家
-- 设置默认图像大小、出图保存目录
+- 设置默认图像大小、出图保存目录、输入栏折叠阈值
 - 保存后**立即生效**：插件每次出图都会重新读配置文件，不用重启
 
 密钥的处理是单向的：
@@ -116,7 +129,9 @@ dsh plugin --profile desktop remove dsh-imagen
 - **当前生图模型**：列出所有配置过的模型。选别家的模型时，提供商自动跟着切——不然请求会发到错的上游。
 - **图像大小**：`1K` / `2K` / `4K` / `自动`。
 
-切换后立刻写回配置，下一句对话就按新的模型和尺寸出图，不用进设置页。这两个下拉走的是独立的窄接口 `/api/imagen/selection`，只传模型和尺寸三个字段，不会把整份配置（含 key）搬来搬去。
+切换后立刻写回配置，下一句对话就按新的模型和尺寸出图，不用进设置页。
+
+对话区变窄时会自动收成一个相机图标（点开是弹层），宽了自动展开。折叠阈值默认 550px，可在 **设置 → 生图 → 输入栏折叠阈值** 里改。这两个下拉走的是独立的窄接口 `/api/imagen/selection`，只传模型和尺寸三个字段，不会把整份配置（含 key）搬来搬去。
 
 ## 工具参数
 
@@ -128,7 +143,8 @@ dsh plugin --profile desktop remove dsh-imagen
 | `size` | string | 否 | `1K` / `2K` / `4K` / `宽x高` |
 | `model` | string | 否 | 本次临时覆盖模型 |
 | `provider` | string | 否 | 本次临时指定提供商 |
-| `image` | string[] | 否 | 参考图 1–8 张，本地绝对路径或 http(s) URL；纯文生图请整个省略 |
+| `image` | string[] | 否 | 参考图 1–8 张；每项可以是 `sha256:` 附件 id（粘贴/上传的图片）、本地绝对路径、http(s) URL、data URL。纯文生图请整个省略 |
+| `seed` | number | 否 | 复现用随机种子；不支持的上游会忽略 |
 | `watermark` | boolean | 否 | 本次是否加水印 |
 
 参数名写错、类型写错、`image` 传空数组，都会直接报错，不会静默忽略——这一点是故意的：静默忽略会让模型以为自己传对了。

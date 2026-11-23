@@ -1,8 +1,20 @@
 {
   "name": "dsh-imagen",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.3.0",
   "description": "Generate and edit images from the conversation through a configurable image model (Volcengine Ark Seedream, OpenAI-compatible, Google Gemini).",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "image",
+    "image-generation",
+    "text-to-image",
+    "seedream",
+    "ark",
+    "volcengine",
+    "openai-images",
+    "gemini"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AlexMillerOvO/dsh-imagen.git"
@@ -30,12 +42,11 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md",
-    "scripts",
-    "test"
+    "README.md"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "node --test"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

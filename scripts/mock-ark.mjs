@@ -25,7 +25,12 @@ const server = createServer((req, res) => {
     req.on('end', () => {
       let parsed = {};
       try { parsed = JSON.parse(body); } catch (_error) { parsed = {}; }
-      console.log('[mock] generate model=' + parsed.model + ' size=' + parsed.size + ' watermark=' + parsed.watermark);
+      const images = Array.isArray(parsed.image) ? parsed.image : [];
+      console.log('[mock] generate model=' + parsed.model + ' size=' + parsed.size
+        + ' watermark=' + parsed.watermark
+        + ' images=' + images.length
+        + (images[0] ? ' firstPrefix=' + String(images[0]).slice(0, 22) : '')
+        + ' seed=' + (parsed.seed === undefined ? 'none' : parsed.seed));
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         model: parsed.model || 'mock-image',

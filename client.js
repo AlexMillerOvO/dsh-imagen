@@ -54,6 +54,8 @@ window.__ModuleLoader__.load({
         noKey: '尚未设置密钥',
         outputDir: '出图保存目录',
         outputDirHint: '相对路径基于当前会话的工作目录',
+        composerWidth: '输入栏折叠阈值',
+        composerWidthHint: '对话区窄于这个像素宽度时，模型和尺寸选择器收成一个图标',
         save: '保存',
         saving: '保存中…',
         saved: '已保存',
@@ -92,6 +94,8 @@ window.__ModuleLoader__.load({
         noKey: 'No key set',
         outputDir: 'Output directory',
         outputDirHint: 'Relative to the current session working directory',
+        composerWidth: 'Composer collapse width',
+        composerWidthHint: 'Below this pixel width the model and size pickers collapse into one icon',
         save: 'Save',
         saving: 'Saving…',
         saved: 'Saved',
@@ -294,6 +298,7 @@ window.__ModuleLoader__.load({
         activeModel: config.activeModel || '',
         size: config.size || '',
         outputDir: config.outputDir || 'generated-images',
+        composerWidth: Number.isFinite(Number(config.composerWidth)) ? Number(config.composerWidth) : 550,
         providers: (config.providers || []).map((provider) => ({
           id: provider.id,
           kind: provider.kind,
@@ -315,6 +320,7 @@ window.__ModuleLoader__.load({
         activeModel: draft.activeModel,
         size: draft.size,
         outputDir: draft.outputDir,
+        composerWidth: draft.composerWidth,
         providers: draft.providers.map((provider) => {
           const item = {
             id: provider.id,
@@ -564,6 +570,18 @@ window.__ModuleLoader__.load({
           })
         ),
 
+        h(Field, { label: t('composerWidth'), hint: t('composerWidthHint') },
+          h('input', {
+            style: S.input, type: 'number', min: 200, max: 2000, step: 10,
+            value: draft.composerWidth,
+            onChange: (event) => {
+              const raw = Number(event.target.value);
+              setSaved(false);
+              setDraft(Object.assign({}, draft, { composerWidth: Number.isFinite(raw) ? raw : '' }));
+            }
+          })
+        ),
+
         h('p', { style: S.hint }, t('adaptersHint')),
 
         h('div', { style: S.footer },
@@ -607,7 +625,8 @@ window.__ModuleLoader__.load({
      * 可用宽度小于这个值就收成一个图标：两个下拉约占 264px，再挤就没地方放
      * 别的控件了。想调手感只改这一个数。
      */
-    const COMPACT_WIDTH = 550;
+    // 配置里的 composerWidth 优先；这个只是拿不到配置时的兜底。
+    const COMPACT_WIDTH_FALLBACK = 550;
 
     function PickerIcon(props) {
       const size = props && typeof props.size === 'number' ? props.size : 14;
@@ -710,7 +729,8 @@ window.__ModuleLoader__.load({
             if (width > widest) widest = width;
           }
           if (!widest) widest = window.innerWidth;
-          const shouldCompact = widest >= 200 && widest < COMPACT_WIDTH;
+          const threshold = Number(config.composerWidth) > 0 ? Number(config.composerWidth) : COMPACT_WIDTH_FALLBACK;
+          const shouldCompact = widest >= 200 && widest < threshold;
           setCompact(shouldCompact);
           // 变宽后弹层没有锚点了，直接关掉，避免它悬在半空。
           if (!shouldCompact) setOpen(false);
